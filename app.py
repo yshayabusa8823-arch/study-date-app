@@ -341,84 +341,194 @@ for day in days:
 summary_df = pd.DataFrame(summary)
 
 with tab_result:
+
+    # =====================
+    # 振替提案
+    # =====================
+
     st.subheader("振替提案")
 
-    missed_plan = result[result["最終行動"] == "勉強できなかった"][["曜日", "時間"]]
-    replacement_plan = result[result["最終行動"] == "振替勉強"][["曜日", "時間"]]
+    missed_plan = result[
+        result["最終行動"] == "勉強できなかった"
+    ][["曜日", "時間"]]
 
-    missed_count = len(missed_plan)
-    replacement_count = len(replacement_plan)
+    replacement_plan = result[
+        result["最終行動"] == "振替勉強"
+    ][["曜日", "時間"]]
 
-    if missed_count > 0:
-        missed_text = "、".join(
-            missed_plan.apply(lambda r: f"{r['曜日']} {r['時間']}", axis=1).tolist()
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            "勉強できなかった時間",
+            f"{len(missed_plan)}時間"
         )
 
-        replacement_text = "、".join(
-            replacement_plan.apply(lambda r: f"{r['曜日']} {r['時間']}", axis=1).tolist()
+    with col2:
+        st.metric(
+            "振替提案時間",
+            f"{len(replacement_plan)}時間"
         )
 
-        st.warning(f"勉強できなかった時間：{missed_count}時間")
-        st.write(f"**できなかった時間：** {missed_text}")
+    if not missed_plan.empty:
 
-        if replacement_text:
-            st.success(f"**代わりにここで勉強しよう：** {replacement_text}")
-        else:
-            st.error("振替できそうな空き時間が見つかりません。")
+        st.write("### できなかった時間")
+
+        st.dataframe(
+            missed_plan.rename(
+                columns={
+                    "曜日": "曜日",
+                    "時間": "時間"
+                }
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    if not replacement_plan.empty:
+
+        st.write("### 代わりにここで勉強しよう")
+
+        st.dataframe(
+            replacement_plan.rename(
+                columns={
+                    "曜日": "曜日",
+                    "時間": "時間"
+                }
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
+
     else:
-        st.success("勉強できなかった時間はありません。")
+
+        st.info("振替が必要な時間はありません。")
+
+    # =====================
+    # おすすめ提案
+    # =====================
 
     st.subheader("おすすめ提案")
 
     study_plan = result[
-        (result["最終行動"] == "勉強") | (result["最終行動"] == "振替勉強")
+        (
+            result["最終行動"] == "勉強"
+        )
+        |
+        (
+            result["最終行動"] == "振替勉強"
+        )
     ][["曜日", "時間", "最終行動"]]
 
-    meet_plan = result[result["最終行動"] == "会う"][["曜日", "時間"]]
+    meet_plan = result[
+        result["最終行動"] == "会う"
+    ][["曜日", "時間"]]
 
-    if not study_plan.empty:
-        study_text = "、".join(
-            study_plan.apply(lambda r: f"{r['曜日']} {r['時間']}({r['最終行動']})", axis=1).tolist()
-        )
-        st.write(f"**ここで勉強しよう：** {study_text}")
+    tab_study, tab_meet = st.tabs(
+        ["勉強する時間", "会える時間"]
+    )
 
-    if not meet_plan.empty:
-        meet_text = "、".join(
-            meet_plan.apply(lambda r: f"{r['曜日']} {r['時間']}", axis=1).tolist()
+    with tab_study:
+
+        st.dataframe(
+            study_plan.rename(
+                columns={
+                    "曜日": "曜日",
+                    "時間": "時間",
+                    "最終行動": "種類"
+                }
+            ),
+            use_container_width=True,
+            hide_index=True
         )
-        st.write(f"**ここで会いやすい：** {meet_text}")
+
+    with tab_meet:
+
+        if not meet_plan.empty:
+
+            st.dataframe(
+                meet_plan,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            st.info(
+                "今のところ「会う」時間はありません。"
+            )
+
+    # =====================
+    # 曜日別まとめ
+    # =====================
 
     st.subheader("曜日別まとめ")
 
     for day in days:
-        d = summary_df[summary_df["曜日"] == day].iloc[0]
 
-        with st.expander(f"{day}曜日", expanded=(day == "月")):
-            st.write(f"**彼女 勉強**：{d['彼女合計勉強時間']}時間")
-            st.write(f"**彼氏 勉強**：{d['彼氏勉強時間']}時間")
-            st.write(f"**勉強できなかった**：{d['勉強できなかった時間']}時間")
-            st.write(f"**振替勉強**：{d['振替勉強時間']}時間")
-            st.write(f"**会う**：{d['会う時間']}時間")
-            st.write(f"**会ってもいい**：{d['会ってもいい時間']}時間")
+        d = summary_df[
+            summary_df["曜日"] == day
+        ].iloc[0]
 
-            if d["勉強時間帯"]:
-                st.write(f"**勉強時間帯**：{d['勉強時間帯']}")
+        with st.expander(
+            f"{day}曜日",
+            expanded=(day == "月")
+        ):
 
-            if d["勉強できなかった時間帯"]:
-                st.write(f"**勉強できなかった時間帯**：{d['勉強できなかった時間帯']}")
+            metric1, metric2, metric3 = st.columns(3)
 
-            if d["振替勉強時間帯"]:
-                st.write(f"**振替勉強時間帯**：{d['振替勉強時間帯']}")
+            with metric1:
+                st.metric(
+                    "彼女 勉強",
+                    f"{d['彼女合計勉強時間']}時間"
+                )
 
-            if d["会う時間帯"]:
-                st.write(f"**会う時間帯**：{d['会う時間帯']}")
+            with metric2:
+                st.metric(
+                    "振替勉強",
+                    f"{d['振替勉強時間']}時間"
+                )
 
-            if d["会ってもいい時間帯"]:
-                st.write(f"**会ってもいい時間帯**：{d['会ってもいい時間帯']}")
+            with metric3:
+                st.metric(
+                    "会う",
+                    f"{d['会う時間']}時間"
+                )
+
+            detail_df = pd.DataFrame({
+
+                "項目": [
+                    "勉強時間帯",
+                    "勉強できなかった",
+                    "振替勉強",
+                    "会う",
+                    "会ってもいい"
+                ],
+
+                "内容": [
+                    d["勉強時間帯"],
+                    d["勉強できなかった時間帯"],
+                    d["振替勉強時間帯"],
+                    d["会う時間帯"],
+                    d["会ってもいい時間帯"]
+                ]
+            })
+
+            st.dataframe(
+                detail_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+    # =====================
+    # 週間タイムテーブル
+    # =====================
 
     st.subheader("週間タイムテーブル")
 
-    time_order_from_data = result["時間"].drop_duplicates().tolist()
+    time_order_from_data = result[
+        "時間"
+    ].drop_duplicates().tolist()
 
     calendar_df = result.pivot_table(
         index="時間",
@@ -437,8 +547,16 @@ with tab_result:
         use_container_width=True
     )
 
+    # =====================
+    # 詳細データ
+    # =====================
+
     with st.expander("詳細データを見る"):
+
         st.dataframe(
-            result.style.map(color_final, subset=["最終行動"]),
+            result.style.map(
+                color_final,
+                subset=["最終行動"]
+            ),
             use_container_width=True
         )
