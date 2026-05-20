@@ -24,8 +24,8 @@ boy_col = "彼氏"
 st.sidebar.header("設定")
 user_role = st.sidebar.radio("使っている人", ["彼女", "彼氏"])
 
-weekday_min = st.sidebar.number_input("平日最低勉強時間", min_value=0, value=2)
-weekend_min = st.sidebar.number_input("土日最低勉強時間", min_value=0, value=4)
+weekday_min = st.sidebar.number_input("平日最低勉強時間", min_value=0, value=5)
+weekend_min = st.sidebar.number_input("土日最低勉強時間", min_value=0, value=7)
 previous_carryover = st.sidebar.number_input("前週繰り越し時間", min_value=0, value=0)
 
 spreadsheet_url = st.sidebar.text_input(
