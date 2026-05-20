@@ -40,14 +40,6 @@ h1, h2, h3 {
     margin-bottom: 16px;
 }
 
-.hero {
-    padding: 22px;
-    border-radius: 26px;
-    background: linear-gradient(135deg, #fff5f5 0%, #f1f8ff 100%);
-    border: 1px solid #f0f0f0;
-    margin-bottom: 18px;
-}
-
 .metric-big {
     font-size: 42px;
     font-weight: 800;
@@ -61,10 +53,10 @@ h1, h2, h3 {
 
 .tag {
     display: inline-block;
-    padding: 6px 10px;
+    padding: 7px 11px;
     border-radius: 999px;
     background: #f4f4f5;
-    margin: 2px;
+    margin: 3px;
     font-size: 14px;
 }
 
@@ -122,8 +114,21 @@ div.stButton > button {
 st.title("📚 Study Date")
 
 days = ["月", "火", "水", "木", "金", "土", "日"]
-weekday_map = {0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"}
-today_day = weekday_map[datetime.now(ZoneInfo("Asia/Tokyo")).weekday()]
+
+weekday_map = {
+    0: "月",
+    1: "火",
+    2: "水",
+    3: "木",
+    4: "金",
+    5: "土",
+    6: "日",
+}
+
+today_day = weekday_map[
+    datetime.now(ZoneInfo("Asia/Tokyo")).weekday()
+]
+
 remaining_days = days[days.index(today_day):]
 
 plans = [
@@ -184,10 +189,13 @@ auto_refresh = st.sidebar.checkbox(
 )
 
 if auto_refresh:
-    st_autorefresh(interval=15000, key="auto_refresh")
+    st_autorefresh(
+        interval=15000,
+        key="auto_refresh"
+    )
 
 # =====================
-# Google Sheets
+# Google Sheets 接続
 # =====================
 
 @st.cache_resource
@@ -227,7 +235,7 @@ def update_one_row(worksheet, row_number, row_values):
     )
 
 # =====================
-# ロジック
+# ロジック関数
 # =====================
 
 def ease_label(ease):
@@ -300,7 +308,10 @@ def calculate_result(df):
     actual_study_total = (result["彼女"] == "勉強").sum()
     missed_total = (result["彼女"] == "勉強できなかった").sum()
 
-    shortage_after_missed = max(0, weekly_required - actual_study_total)
+    shortage_after_missed = max(
+        0,
+        weekly_required - actual_study_total
+    )
 
     all_candidates = []
 
@@ -348,7 +359,10 @@ def calculate_result(df):
                 score = priority_score(priority) * 10 + ease_score(ease)
                 all_candidates.append((idx, score))
 
-    all_candidates = sorted(all_candidates, key=lambda x: x[1])
+    all_candidates = sorted(
+        all_candidates,
+        key=lambda x: x[1]
+    )
 
     available_candidate_count = len(all_candidates)
     auto_place_count = min(shortage_after_missed, available_candidate_count)
@@ -438,7 +452,6 @@ def make_summary(result):
 
     return pd.DataFrame(summary)
 
-
 # =====================
 # データ読み込み
 # =====================
@@ -452,12 +465,24 @@ except Exception as e:
     st.exception(e)
     st.stop()
 
+required_cols = [
+    "曜日",
+    "時間",
+    "彼女",
+    "彼氏",
+    "会いやすさ",
+    "勉強優先度",
+]
 
-required_cols = ["曜日", "時間", "彼女", "彼氏", "会いやすさ", "勉強優先度"]
-missing_cols = [c for c in required_cols if c not in df.columns]
+missing_cols = [
+    c for c in required_cols
+    if c not in df.columns
+]
 
 if missing_cols:
-    st.error(f"Google Sheetsに必要な列が足りません：{missing_cols}")
+    st.error(
+        f"Google Sheetsに必要な列が足りません：{missing_cols}"
+    )
     st.stop()
 
 df = df[required_cols].copy()
@@ -473,7 +498,8 @@ summary_df = make_summary(result)
 today_df = result[result["曜日"] == today_day].copy()
 
 today_study = today_df[
-    (today_df["最終行動"] == "勉強") | (today_df["最終行動"] == "振替勉強")
+    (today_df["最終行動"] == "勉強")
+    | (today_df["最終行動"] == "振替勉強")
 ][["時間", "最終行動"]]
 
 today_maybe = today_df[
@@ -510,23 +536,80 @@ tab_home, tab_input, tab_week, tab_analysis = st.tabs(
 # =====================
 
 with tab_home:
-    st.markdown("""
-    <div class="hero">
-        <div class="muted">今日の提案</div>
-        <h2>今日どうする？</h2>
+    today_study_times = today_study["時間"].astype(str).tolist()
+    today_meet_times = today_maybe["時間"].astype(str).tolist()
+
+    if stats["shortage_after_missed"] > 0 and today_study_times:
+        hero_title = "📚 今日は勉強優先"
+        hero_message = (
+            f"最低勉強時間まであと{stats['shortage_after_missed']}時間。"
+            f"今日は {'、'.join(today_study_times[:3])} あたりで勉強しよう。"
+        )
+        hero_color = "#fff7e6"
+
+    elif stats["shortage_after_missed"] > 0:
+        hero_title = "⚠️ 今週の勉強時間が不足中"
+        hero_message = (
+            f"最低勉強時間まであと{stats['shortage_after_missed']}時間。"
+            f"今日入れられる勉強時間は少なそうだから、週間ページで振替候補を確認しよう。"
+        )
+        hero_color = "#fff1f0"
+
+    elif today_meet_times:
+        hero_title = "❤️ 今日は会いやすい日"
+        hero_message = (
+            f"最低勉強時間は達成ペース。"
+            f"今日は {'、'.join(today_meet_times[:3])} が会ってもいい時間です。"
+        )
+        hero_color = "#f6ffed"
+
+    else:
+        hero_title = "🌙 今日は予定確認だけでOK"
+        hero_message = (
+            "最低勉強時間は達成ペース。"
+            "今日は無理に予定を増やさなくても大丈夫そうです。"
+        )
+        hero_color = "#f5f7ff"
+
+    st.markdown(f"""
+    <div style="
+        padding: 24px;
+        border-radius: 28px;
+        background: {hero_color};
+        border: 1px solid #eeeeee;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.05);
+    ">
+        <div style="color:#666; font-size:14px; margin-bottom:8px;">
+            今日の提案
+        </div>
+        <div style="font-size:34px; font-weight:800; line-height:1.2; margin-bottom:10px;">
+            {hero_title}
+        </div>
+        <div style="font-size:17px; line-height:1.7; color:#444;">
+            {hero_message}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.metric("最低との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
+        st.metric(
+            "最低との差",
+            f"{stats['actual_study_total'] - stats['weekly_required']}時間"
+        )
 
     with col2:
-        st.metric("来週繰り越し", f"{stats['next_carryover']}時間")
+        st.metric(
+            "来週繰り越し",
+            f"{stats['next_carryover']}時間"
+        )
 
     if stats["shortage_after_missed"] > 0:
-        st.error(f"最低勉強時間を {stats['shortage_after_missed']}時間 下回っています。")
+        st.error(
+            f"最低勉強時間を {stats['shortage_after_missed']}時間 下回っています。"
+        )
     else:
         st.success("最低勉強時間は満たせています。")
 
@@ -535,8 +618,9 @@ with tab_home:
 
     if not today_study.empty:
         for _, r in today_study.iterrows():
+            tag_class = "warn" if r["最終行動"] == "振替勉強" else "study"
             st.markdown(
-                f'<span class="tag study">{r["時間"]} {r["最終行動"]}</span>',
+                f'<span class="tag {tag_class}">{r["時間"]} {r["最終行動"]}</span>',
                 unsafe_allow_html=True
             )
     else:
@@ -609,7 +693,10 @@ with tab_input:
 
     for i, plan in enumerate(plans):
         with cols[i % 3]:
-            if st.button(plan, key=f"{selected_day}_{selected_time}_{target_col}_{plan}"):
+            if st.button(
+                plan,
+                key=f"{selected_day}_{selected_time}_{target_col}_{plan}"
+            ):
                 new_girl = row[girl_col]
                 new_boy = row[boy_col]
 
@@ -642,7 +729,10 @@ with tab_input:
 
         for i, ease in enumerate(ease_options):
             with ease_cols[i]:
-                if st.button(ease, key=f"{selected_day}_{selected_time}_ease_{ease}"):
+                if st.button(
+                    ease,
+                    key=f"{selected_day}_{selected_time}_ease_{ease}"
+                ):
                     update_one_row(
                         worksheet,
                         sheet_row_number,
@@ -666,7 +756,10 @@ with tab_input:
 
         for i, priority in enumerate(priority_options):
             with pri_cols[i]:
-                if st.button(priority, key=f"{selected_day}_{selected_time}_priority_{priority}"):
+                if st.button(
+                    priority,
+                    key=f"{selected_day}_{selected_time}_priority_{priority}"
+                ):
                     update_one_row(
                         worksheet,
                         sheet_row_number,
@@ -697,7 +790,6 @@ with tab_input:
 
 with tab_week:
     st.subheader("📅 週間タイムテーブル")
-
     st.caption(f"今日：{today_day}曜日 / 今週の残り対象：{''.join(remaining_days)}")
 
     time_order_from_data = result["時間"].drop_duplicates().tolist()
@@ -746,7 +838,10 @@ with tab_analysis:
         st.metric("現在の勉強予定", f"{stats['actual_study_total']}時間")
 
     with col3:
-        st.metric("最低との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
+        st.metric(
+            "最低との差",
+            f"{stats['actual_study_total'] - stats['weekly_required']}時間"
+        )
 
     col4, col5, col6 = st.columns(3)
 
@@ -760,7 +855,9 @@ with tab_analysis:
         st.metric("来週繰り越し", f"{stats['next_carryover']}時間")
 
     if stats["shortage_after_missed"] > 0:
-        st.warning(f"最低勉強時間を {stats['shortage_after_missed']}時間 下回っています。")
+        st.warning(
+            f"最低勉強時間を {stats['shortage_after_missed']}時間 下回っています。"
+        )
     else:
         st.success("最低勉強時間は満たせています。")
 
