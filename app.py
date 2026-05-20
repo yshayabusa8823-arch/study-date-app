@@ -73,15 +73,29 @@ def update_one_row(worksheet, row_number, row_values):
 
 
 def ease_label(ease):
-    return {"×": "最優先", "△": "高", "○": "中", "◎": "低"}.get(ease, "")
+    return {
+        "×": "最優先",
+        "△": "高",
+        "○": "中",
+        "◎": "低",
+    }.get(ease, "")
 
 
 def ease_score(ease):
-    return {"×": 1, "△": 2, "○": 3, "◎": 4}.get(ease, 9)
+    return {
+        "×": 1,
+        "△": 2,
+        "○": 3,
+        "◎": 4,
+    }.get(ease, 9)
 
 
 def priority_score(priority):
-    return {"高": 1, "中": 2, "低": 3}.get(priority, 9)
+    return {
+        "高": 1,
+        "中": 2,
+        "低": 3,
+    }.get(priority, 9)
 
 
 def color_final(val):
@@ -95,6 +109,8 @@ def color_final(val):
         return "background-color: #b7e1cd"
     if val == "会ってもいい":
         return "background-color: #d9ead3"
+    if val == "彼氏予定あり":
+        return "background-color: #eeeeee"
     if val == "授業":
         return "background-color: #f4cccc"
     if val == "バイト":
@@ -126,7 +142,6 @@ def calculate_result(df):
     actual_study_total = (result["彼女"] == "勉強").sum()
     missed_total = (result["彼女"] == "勉強できなかった").sum()
 
-    surplus_before_missed = actual_study_total + missed_total - weekly_required
     shortage_after_missed = max(0, weekly_required - actual_study_total)
 
     all_candidates = []
@@ -155,6 +170,8 @@ def calculate_result(df):
                 result.loc[idx, "判定"] = "予定優先"
             elif girl == "空き" and boy == "勉強":
                 result.loc[idx, "判定"] = "勉強候補"
+            elif girl == "空き" and boy != "空き":
+                result.loc[idx, "判定"] = "彼氏予定あり"
             elif girl == "空き":
                 result.loc[idx, "判定"] = "勉強優先寄り"
 
@@ -177,6 +194,7 @@ def calculate_result(df):
 
     for idx in result.index:
         girl = result.loc[idx, "彼女"]
+        boy = result.loc[idx, "彼氏"]
         ease = result.loc[idx, "会いやすさ"]
         auto = result.loc[idx, "自動配置"]
 
@@ -188,10 +206,12 @@ def calculate_result(df):
             result.loc[idx, "最終行動"] = "勉強できなかった"
         elif girl in ["授業", "バイト", "ご飯", "用事", "睡眠", "移動", "その他"]:
             result.loc[idx, "最終行動"] = girl
-        elif girl == "空き" and ease == "◎":
+        elif girl == "空き" and boy == "空き" and ease == "◎":
             result.loc[idx, "最終行動"] = "会う"
-        elif girl == "空き":
+        elif girl == "空き" and boy == "空き":
             result.loc[idx, "最終行動"] = "会ってもいい"
+        elif girl == "空き" and boy != "空き":
+            result.loc[idx, "最終行動"] = "彼氏予定あり"
         else:
             result.loc[idx, "最終行動"] = "自由"
 
@@ -199,7 +219,6 @@ def calculate_result(df):
         "weekly_required": int(weekly_required),
         "actual_study_total": int(actual_study_total),
         "missed_total": int(missed_total),
-        "surplus_before_missed": int(surplus_before_missed),
         "shortage_after_missed": int(shortage_after_missed),
         "available_candidate_count": int(available_candidate_count),
         "auto_place_count": int(auto_place_count),
@@ -373,10 +392,12 @@ for day in days:
         "勉強できなかった時間": int((d["最終行動"] == "勉強できなかった").sum()),
         "振替勉強時間": int((d["最終行動"] == "振替勉強").sum()),
         "会ってもいい時間": int((d["最終行動"] == "会ってもいい").sum()),
+        "彼氏予定あり時間": int((d["最終行動"] == "彼氏予定あり").sum()),
         "勉強時間帯": "、".join(d.loc[d["最終行動"] == "勉強", "時間"].astype(str).tolist()),
         "振替勉強時間帯": "、".join(d.loc[d["最終行動"] == "振替勉強", "時間"].astype(str).tolist()),
         "勉強できなかった時間帯": "、".join(d.loc[d["最終行動"] == "勉強できなかった", "時間"].astype(str).tolist()),
         "会ってもいい時間帯": "、".join(d.loc[d["最終行動"] == "会ってもいい", "時間"].astype(str).tolist()),
+        "彼氏予定あり時間帯": "、".join(d.loc[d["最終行動"] == "彼氏予定あり", "時間"].astype(str).tolist()),
     })
 
 summary_df = pd.DataFrame(summary)
@@ -499,12 +520,14 @@ with tab_result:
                     "勉強できなかった",
                     "振替勉強",
                     "会ってもいい",
+                    "彼氏予定あり",
                 ],
                 "内容": [
                     d["勉強時間帯"],
                     d["勉強できなかった時間帯"],
                     d["振替勉強時間帯"],
                     d["会ってもいい時間帯"],
+                    d["彼氏予定あり時間帯"],
                 ],
             })
 
