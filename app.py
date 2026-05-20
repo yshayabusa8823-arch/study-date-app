@@ -26,7 +26,6 @@ user_role = st.sidebar.radio("使っている人", ["彼女", "彼氏"])
 
 weekday_min = st.sidebar.number_input("平日最低勉強時間", min_value=0, value=5)
 weekend_min = st.sidebar.number_input("土日最低勉強時間", min_value=0, value=7)
-previous_carryover = st.sidebar.number_input("前週繰り越し時間", min_value=0, value=0)
 
 spreadsheet_url = st.sidebar.text_input(
     "Google Sheets URL",
@@ -122,19 +121,13 @@ def calculate_result(df):
     result["自動配置"] = ""
     result["最終行動"] = ""
 
-    required_remaining = sum(
-        weekday_min if day in ["月", "火", "水", "木", "金"] else weekend_min
-        for day in remaining_days
-    )
+    weekly_required = weekday_min * 5 + weekend_min * 2
 
-    current_study_remaining = result[
-        result["曜日"].isin(remaining_days)
-    ]["彼女"].eq("勉強").sum()
+    actual_study_total = (result["彼女"] == "勉強").sum()
+    missed_total = (result["彼女"] == "勉強できなかった").sum()
 
-    shortage_remaining = max(
-        0,
-        required_remaining + previous_carryover - current_study_remaining
-    )
+    surplus_before_missed = actual_study_total + missed_total - weekly_required
+    shortage_after_missed = max(0, weekly_required - actual_study_total)
 
     all_candidates = []
 
@@ -157,7 +150,7 @@ def calculate_result(df):
             if girl == "勉強":
                 result.loc[idx, "判定"] = "勉強確定"
             elif girl == "勉強できなかった":
-                result.loc[idx, "判定"] = "振替必要"
+                result.loc[idx, "判定"] = "最低割れなら振替必要"
             elif girl in ["授業", "バイト", "ご飯", "用事", "睡眠", "移動", "その他"]:
                 result.loc[idx, "判定"] = "予定優先"
             elif girl == "空き" and boy == "勉強":
@@ -173,8 +166,8 @@ def calculate_result(df):
     all_candidates = sorted(all_candidates, key=lambda x: x[1])
 
     available_candidate_count = len(all_candidates)
-    next_carryover = max(0, shortage_remaining - available_candidate_count)
-    auto_place_count = min(shortage_remaining, available_candidate_count)
+    auto_place_count = min(shortage_after_missed, available_candidate_count)
+    next_carryover = max(0, shortage_after_missed - available_candidate_count)
 
     for order, (idx, score) in enumerate(all_candidates, start=1):
         result.loc[idx, "勉強候補順"] = order
@@ -203,12 +196,13 @@ def calculate_result(df):
             result.loc[idx, "最終行動"] = "自由"
 
     stats = {
-        "required_remaining": int(required_remaining),
-        "current_study_remaining": int(current_study_remaining),
-        "shortage_remaining": int(shortage_remaining),
+        "weekly_required": int(weekly_required),
+        "actual_study_total": int(actual_study_total),
+        "missed_total": int(missed_total),
+        "surplus_before_missed": int(surplus_before_missed),
+        "shortage_after_missed": int(shortage_after_missed),
         "available_candidate_count": int(available_candidate_count),
         "auto_place_count": int(auto_place_count),
-        "previous_carryover": int(previous_carryover),
         "next_carryover": int(next_carryover),
     }
 
@@ -391,36 +385,41 @@ summary_df = pd.DataFrame(summary)
 with tab_result:
     st.subheader("今週の勉強調整")
 
-    st.caption(f"今日：{today_day}曜日 / 対象：{''.join(remaining_days)}")
+    st.caption(f"今日：{today_day}曜日 / 今週の残り対象：{''.join(remaining_days)}")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("前週繰り越し時間", f"{stats['previous_carryover']}時間")
+        st.metric("週最低勉強時間", f"{stats['weekly_required']}時間")
 
     with col2:
-        st.metric("残り必要勉強時間", f"{stats['required_remaining']}時間")
+        st.metric("現在の勉強予定", f"{stats['actual_study_total']}時間")
 
     with col3:
-        st.metric("現在の残り勉強予定", f"{stats['current_study_remaining']}時間")
+        st.metric("最低との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
 
     col4, col5, col6 = st.columns(3)
 
     with col4:
-        st.metric("不足時間", f"{stats['shortage_remaining']}時間")
+        st.metric("勉強できなかった", f"{stats['missed_total']}時間")
 
     with col5:
-        st.metric("今週に入れられる時間", f"{stats['auto_place_count']}時間")
+        st.metric("今週に入れる振替", f"{stats['auto_place_count']}時間")
 
     with col6:
-        st.metric("来週繰り越し時間", f"{stats['next_carryover']}時間")
+        st.metric("来週繰り越し", f"{stats['next_carryover']}時間")
 
-    replacement_plan = result[
-        result["最終行動"] == "振替勉強"
-    ][["曜日", "時間"]]
+    if stats["shortage_after_missed"] > 0:
+        st.warning(f"最低勉強時間を {stats['shortage_after_missed']}時間 下回っています。")
+    else:
+        st.success("最低勉強時間は満たせています。")
 
     missed_plan = result[
         result["最終行動"] == "勉強できなかった"
+    ][["曜日", "時間"]]
+
+    replacement_plan = result[
+        result["最終行動"] == "振替勉強"
     ][["曜日", "時間"]]
 
     if not missed_plan.empty:
@@ -439,7 +438,7 @@ with tab_result:
             hide_index=True
         )
     else:
-        st.info("今週中に追加する振替勉強はありません。")
+        st.info("追加の振替勉強は不要です。")
 
     if stats["next_carryover"] > 0:
         st.warning(f"今週中に入れきれないため、{stats['next_carryover']}時間を来週に繰り越します。")
