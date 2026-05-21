@@ -17,10 +17,9 @@ h1, h2, h3 { letter-spacing: -0.03em; }
     border: 1px solid #eeeeee; box-shadow: 0 4px 14px rgba(0,0,0,0.05);
     margin-bottom: 16px;
 }
-.muted { color: #777; font-size: 14px; }
 .tag {
     display: inline-block; padding: 7px 11px; border-radius: 999px;
-    background: #f4f4f5; margin: 3px; font-size: 14px;
+    margin: 3px; font-size: 14px;
 }
 .study { background: #fff2cc; }
 .meet { background: #d9ead3; }
@@ -49,24 +48,21 @@ today_day = weekday_map[datetime.now(ZoneInfo("Asia/Tokyo")).weekday()]
 tomorrow_day = days[(days.index(today_day) + 1) % 7]
 remaining_days = days[days.index(today_day):]
 
-# =====================
-# ロースクール試験日
-# =====================
-
 today_date = date.today()
-
 exam_dates = {
     "中央": date(2026, 8, 22),
     "早稲田": date(2026, 8, 29),
     "慶應": date(2026, 9, 5),
 }
-
 countdowns = {
     school: (exam_date - today_date).days
     for school, exam_date in exam_dates.items()
 }
 
-plans = ["空き", "勉強", "勉強できなかった", "授業", "バイト", "ご飯", "用事", "睡眠", "移動", "その他"]
+plans = [
+    "空き", "勉強", "勉強できなかった", "授業", "バイト",
+    "ご飯", "用事", "睡眠", "移動", "その他"
+]
 ease_options = ["◎", "○", "△", "×"]
 priority_options = ["高", "中", "低"]
 
@@ -74,7 +70,6 @@ girl_col = "彼女"
 boy_col = "彼氏"
 
 st.sidebar.header("設定")
-
 user_role = st.sidebar.radio("使っている人", ["彼女", "彼氏"])
 weekday_min = st.sidebar.number_input("平日最低勉強時間", min_value=0, value=5)
 weekend_min = st.sidebar.number_input("土日最低勉強時間", min_value=0, value=7)
@@ -86,10 +81,14 @@ spreadsheet_url = st.sidebar.text_input(
 
 worksheet_name = st.sidebar.text_input("シート名", value="予定入力")
 
-auto_refresh = st.sidebar.checkbox("自動更新する", value=True)
+auto_refresh = st.sidebar.checkbox("自動更新する", value=False)
 
 if auto_refresh:
-    st_autorefresh(interval=15000, key="auto_refresh")
+    st_autorefresh(interval=60000, key="auto_refresh")
+
+if st.sidebar.button("手動更新"):
+    st.cache_data.clear()
+    st.rerun()
 
 
 @st.cache_resource
@@ -98,28 +97,25 @@ def connect_gsheet():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-
     credentials = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=scopes,
     )
-
     return gspread.authorize(credentials)
 
 
-@st.cache_data(ttl=10)
-def load_sheet_cached(url, sheet_name):
+@st.cache_resource
+def get_worksheet_cached(url, sheet_name):
     client = connect_gsheet()
     sheet = client.open_by_url(url)
-    worksheet = sheet.worksheet(sheet_name)
+    return sheet.worksheet(sheet_name)
+
+
+@st.cache_data(ttl=60)
+def load_sheet_cached(url, sheet_name):
+    worksheet = get_worksheet_cached(url, sheet_name)
     data = worksheet.get_all_records()
     return pd.DataFrame(data)
-
-
-def get_worksheet():
-    client = connect_gsheet()
-    sheet = client.open_by_url(spreadsheet_url)
-    return sheet.worksheet(worksheet_name)
 
 
 def update_one_row(worksheet, row_number, row_values):
@@ -134,6 +130,13 @@ def format_time_range(time_str):
         return f"{start_hour:02d}:00-{end_hour:02d}:00"
     except Exception:
         return str(time_str)
+
+
+def format_df_time_range(df, time_col="時間"):
+    copied = df.copy()
+    if time_col in copied.columns:
+        copied[time_col] = copied[time_col].apply(format_time_range)
+    return copied
 
 
 def ease_label(ease):
@@ -281,26 +284,11 @@ def make_summary(result):
             "振替勉強時間": int((d["最終行動"] == "振替勉強").sum()),
             "会ってもいい時間": int((d["最終行動"] == "会ってもいい").sum()),
             "彼氏予定あり時間": int((d["最終行動"] == "彼氏予定あり").sum()),
-            "勉強時間帯": "、".join(
-                format_time_range(t)
-                for t in d.loc[d["最終行動"] == "勉強", "時間"].astype(str).tolist()
-            ),
-            "振替勉強時間帯": "、".join(
-                format_time_range(t)
-                for t in d.loc[d["最終行動"] == "振替勉強", "時間"].astype(str).tolist()
-            ),
-            "勉強できなかった時間帯": "、".join(
-                format_time_range(t)
-                for t in d.loc[d["最終行動"] == "勉強できなかった", "時間"].astype(str).tolist()
-            ),
-            "会ってもいい時間帯": "、".join(
-                format_time_range(t)
-                for t in d.loc[d["最終行動"] == "会ってもいい", "時間"].astype(str).tolist()
-            ),
-            "彼氏予定あり時間帯": "、".join(
-                format_time_range(t)
-                for t in d.loc[d["最終行動"] == "彼氏予定あり", "時間"].astype(str).tolist()
-            ),
+            "勉強時間帯": "、".join(format_time_range(t) for t in d.loc[d["最終行動"] == "勉強", "時間"].astype(str).tolist()),
+            "振替勉強時間帯": "、".join(format_time_range(t) for t in d.loc[d["最終行動"] == "振替勉強", "時間"].astype(str).tolist()),
+            "勉強できなかった時間帯": "、".join(format_time_range(t) for t in d.loc[d["最終行動"] == "勉強できなかった", "時間"].astype(str).tolist()),
+            "会ってもいい時間帯": "、".join(format_time_range(t) for t in d.loc[d["最終行動"] == "会ってもいい", "時間"].astype(str).tolist()),
+            "彼氏予定あり時間帯": "、".join(format_time_range(t) for t in d.loc[d["最終行動"] == "彼氏予定あり", "時間"].astype(str).tolist()),
         })
 
     return pd.DataFrame(summary)
@@ -314,32 +302,79 @@ def extract_day_data(result, target_day):
         | (day_df["最終行動"] == "振替勉強")
     ][["時間", "最終行動"]]
 
-    maybe = day_df[
-        day_df["最終行動"] == "会ってもいい"
-    ][["時間"]]
-
-    missed = day_df[
-        day_df["最終行動"] == "勉強できなかった"
-    ][["時間"]]
+    maybe = day_df[day_df["最終行動"] == "会ってもいい"][["時間"]]
+    missed = day_df[day_df["最終行動"] == "勉強できなかった"][["時間"]]
 
     return study, maybe, missed
 
 
-def format_df_time_range(df, time_col="時間"):
-    copied = df.copy()
-    if time_col in copied.columns:
-        copied[time_col] = copied[time_col].apply(format_time_range)
-    return copied
+def apply_replacements_to_sheet(worksheet, result_df):
+    replacement_rows = result_df[result_df["最終行動"] == "振替勉強"]
+
+    if replacement_rows.empty:
+        return 0
+
+    updates = []
+
+    for idx, row in replacement_rows.iterrows():
+        sheet_row_number = idx + 2
+        updates.append({
+            "range": f"A{sheet_row_number}:F{sheet_row_number}",
+            "values": [[
+                row["曜日"],
+                row["時間"],
+                "勉強",
+                row["彼氏"],
+                row["会いやすさ"],
+                row["勉強優先度"],
+            ]]
+        })
+
+    worksheet.batch_update(updates, value_input_option="USER_ENTERED")
+    return len(updates)
+
+
+def apply_missed_to_sheet(worksheet, df, selected_labels):
+    if not selected_labels:
+        return 0
+
+    label_to_index = {
+        f'{row["曜日"]} {format_time_range(row["時間"])} / 現在:{row["彼女"]}': idx
+        for idx, row in df.iterrows()
+    }
+
+    updates = []
+
+    for label in selected_labels:
+        idx = label_to_index[label]
+        row = df.loc[idx]
+        sheet_row_number = idx + 2
+
+        updates.append({
+            "range": f"A{sheet_row_number}:F{sheet_row_number}",
+            "values": [[
+                row["曜日"],
+                row["時間"],
+                "勉強できなかった",
+                row["彼氏"],
+                row["会いやすさ"],
+                row["勉強優先度"],
+            ]]
+        })
+
+    worksheet.batch_update(updates, value_input_option="USER_ENTERED")
+    return len(updates)
 
 
 try:
     df = load_sheet_cached(spreadsheet_url, worksheet_name)
-    worksheet = get_worksheet()
+    worksheet = get_worksheet_cached(spreadsheet_url, worksheet_name)
 
 except Exception as e:
-    st.error("Google Sheetsの読み込みに失敗しました。URL・シート名・Secrets・共有権限を確認して。")
+    st.error("Google Sheetsの読み込みに失敗しました。API上限の可能性もあります。少し時間を置いてから、左の「手動更新」を押してください。")
     st.exception(e)
     st.stop()
+
 
 required_cols = ["曜日", "時間", "彼女", "彼氏", "会いやすさ", "勉強優先度"]
 missing_cols = [c for c in required_cols if c not in df.columns]
@@ -366,157 +401,84 @@ tab_home, tab_input, tab_week, tab_analysis = st.tabs(
     ["🏠 今日", "✏️ 入力", "📅 週間", "📊 分析"]
 )
 
+
 with tab_home:
-    view_day_label = st.radio(
-        "表示する日",
-        ["今日", "明日"],
-        horizontal=True
-    )
+    view_day_label = st.radio("表示する日", ["今日", "明日"], horizontal=True)
 
     target_day = today_day if view_day_label == "今日" else tomorrow_day
     target_study, target_maybe, target_missed = extract_day_data(result, target_day)
 
     target_study_times = target_study["時間"].astype(str).tolist()
-    target_meet_times = target_maybe["時間"].astype(str).tolist()
-
     label_prefix = "今日" if view_day_label == "今日" else "明日"
 
     if stats["shortage_after_missed"] > 0 and target_study_times:
         suggested_times = [format_time_range(t) for t in target_study_times[:3]]
         suggested_hours = len(target_study_times)
-
         hero_title = f"📚 {label_prefix}は勉強優先"
-        hero_message = (
-            f"最低勉強時間まであと{stats['shortage_after_missed']}時間。"
-            f"{label_prefix}は {'、'.join(suggested_times)} あたりを中心に、"
-            f"合計{suggested_hours}時間勉強しよう！"
-        )
+        hero_message = f"最低勉強時間まであと{stats['shortage_after_missed']}時間。{label_prefix}は {'、'.join(suggested_times)} あたりを中心に、合計{suggested_hours}時間勉強しよう！"
         hero_color = "#fff7e6"
-
     elif stats["shortage_after_missed"] > 0:
         hero_title = "⚠️ 今週の勉強時間が不足中"
-        hero_message = (
-            f"最低勉強時間まであと{stats['shortage_after_missed']}時間。"
-            f"{label_prefix}に入れられる勉強時間は少なそうだから、"
-            f"週間ページで振替候補を確認しよう。"
-        )
+        hero_message = f"最低勉強時間まであと{stats['shortage_after_missed']}時間。週間ページで振替候補を確認しよう。"
         hero_color = "#fff1f0"
-
     elif target_study_times:
         suggested_times = [format_time_range(t) for t in target_study_times[:3]]
         suggested_hours = len(target_study_times)
-
         hero_title = f"📚 {label_prefix}の勉強ペースは順調"
-        hero_message = (
-            f"{label_prefix}は {'、'.join(suggested_times)} あたりを中心に、"
-            f"合計{suggested_hours}時間勉強しよう！"
-        )
+        hero_message = f"{label_prefix}は {'、'.join(suggested_times)} あたりを中心に、合計{suggested_hours}時間勉強しよう！"
         hero_color = "#f6ffed"
-
     else:
         hero_title = f"📘 {label_prefix}の勉強ペースは余裕あり"
-        hero_message = (
-            "最低勉強時間は達成ペース。"
-            f"{label_prefix}は追加の振替勉強は必要なさそうです。"
-        )
+        hero_message = f"{label_prefix}は追加の振替勉強は必要なさそうです。"
         hero_color = "#f5f7ff"
 
     st.markdown(f"""
-    <div style="
-        padding: 24px;
-        border-radius: 28px;
-        background: {hero_color};
-        border: 1px solid #eeeeee;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.05);
-    ">
-        <div style="color:#666; font-size:14px; margin-bottom:8px;">
-            {label_prefix}の提案：{target_day}曜日
-        </div>
-        <div style="font-size:34px; font-weight:800; line-height:1.2; margin-bottom:10px;">
-            {hero_title}
-        </div>
-        <div style="font-size:17px; line-height:1.7; color:#444;">
-            {hero_message}
-        </div>
+    <div style="padding:24px;border-radius:28px;background:{hero_color};border:1px solid #eeeeee;margin-bottom:20px;box-shadow:0 4px 14px rgba(0,0,0,0.05);">
+        <div style="color:#666;font-size:14px;margin-bottom:8px;">{label_prefix}の提案：{target_day}曜日</div>
+        <div style="font-size:34px;font-weight:800;line-height:1.2;margin-bottom:10px;">{hero_title}</div>
+        <div style="font-size:17px;line-height:1.7;color:#444;">{hero_message}</div>
     </div>
     """, unsafe_allow_html=True)
 
     st.subheader("📅 ロースクール試験まで")
+    cols = st.columns(3)
 
-cols = st.columns(3)
-schools = ["中央", "早稲田", "慶應"]
+    for i, school in enumerate(["中央", "早稲田", "慶應"]):
+        days_left = countdowns[school]
 
-for i, school in enumerate(schools):
-    days_left = countdowns[school]
+        with cols[i]:
+            if days_left <= 100:
+                card_color = "linear-gradient(135deg,#ffeded,#ffe3e3)"
+                border = "#ff9e9e"
+                title_color = "#d32f2f"
+                num_color = "#b71c1c"
+                icon = "🔥"
+                note = "100日切り"
+            else:
+                card_color = "#ffffff"
+                border = "#eeeeee"
+                title_color = "#555"
+                num_color = "#222"
+                icon = "🎓"
+                note = "試験までカウントダウン中"
 
-    with cols[i]:
-        if days_left <= 100:
-            card_html = f"""
-            <div style="
-                padding:20px;
-                border-radius:24px;
-                background: linear-gradient(135deg,#ffeded,#ffe3e3);
-                border:1px solid #ff9e9e;
-                box-shadow:0 6px 18px rgba(255,0,0,0.10);
-                min-height:170px;
-            ">
-                <div style="font-size:15px; color:#d32f2f; font-weight:700; margin-bottom:10px;">
-                    🔥 {school}ロー
-                </div>
-                <div style="font-size:42px; font-weight:800; color:#b71c1c; line-height:1.1;">
-                    あと{days_left}日
-                </div>
-                <div style="margin-top:14px; font-size:14px; color:#c62828; font-weight:600;">
-                    100日切り
-                </div>
+            st.markdown(f"""
+            <div style="padding:18px;border-radius:24px;background:{card_color};border:1px solid {border};box-shadow:0 4px 14px rgba(0,0,0,0.05);min-height:150px;">
+                <div style="font-size:15px;color:{title_color};font-weight:700;margin-bottom:10px;">{icon} {school}ロー</div>
+                <div style="font-size:34px;font-weight:800;color:{num_color};line-height:1.1;">あと{days_left}日</div>
+                <div style="margin-top:14px;font-size:14px;color:{title_color};font-weight:600;">{note}</div>
             </div>
-            """
-        else:
-            card_html = f"""
-            <div style="
-                padding:20px;
-                border-radius:24px;
-                background:#ffffff;
-                border:1px solid #eeeeee;
-                box-shadow:0 4px 14px rgba(0,0,0,0.05);
-                min-height:170px;
-            ">
-                <div style="font-size:15px; color:#555; font-weight:700; margin-bottom:10px;">
-                    🎓 {school}ロー
-                </div>
-                <div style="font-size:42px; font-weight:800; color:#222; line-height:1.1;">
-                    あと{days_left}日
-                </div>
-                <div style="margin-top:14px; font-size:14px; color:#888;">
-                    試験までカウントダウン中
-                </div>
-            </div>
-            """
+            """, unsafe_allow_html=True)
 
-        st.markdown(card_html, unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric(
-            "週合計目標との差",
-            f"{stats['actual_study_total'] - stats['weekly_required']}時間"
-        )
-
-    with col2:
-        st.metric(
-            "来週繰り越し",
-            f"{stats['next_carryover']}時間"
-        )
+    st.metric("週合計目標との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
+    st.metric("来週繰り越し", f"{stats['next_carryover']}時間")
 
     if stats["shortage_after_missed"] > 0:
         st.error(f"最低勉強時間を {stats['shortage_after_missed']}時間 下回っています。")
     else:
         st.success("最低勉強時間は満たせています。")
 
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader(f"📚 {label_prefix}の勉強")
-
     if not target_study.empty:
         for _, r in target_study.iterrows():
             tag_class = "warn" if r["最終行動"] == "振替勉強" else "study"
@@ -527,11 +489,7 @@ for i, school in enumerate(schools):
     else:
         st.caption(f"{label_prefix}の勉強予定はありません。")
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader(f"🤝 {label_prefix}会ってもいい時間")
-
     if not target_maybe.empty:
         for _, r in target_maybe.iterrows():
             st.markdown(
@@ -541,27 +499,41 @@ for i, school in enumerate(schools):
     else:
         st.caption(f"{label_prefix}の会ってもいい時間はありません。")
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
     if not target_missed.empty:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader(f"⚠️ {label_prefix}の勉強できなかった時間")
         for _, r in target_missed.iterrows():
             st.markdown(
                 f'<span class="tag bad">{format_time_range(r["時間"])}</span>',
                 unsafe_allow_html=True
             )
-        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.subheader("🔁 今週の振替提案")
 
     if not replacement_plan.empty:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("🔁 今週の振替提案")
         st.dataframe(
             format_df_time_range(replacement_plan),
             use_container_width=True,
             hide_index=True
         )
-        st.markdown('</div>', unsafe_allow_html=True)
+
+        apply_choice = st.radio(
+            "この振替提案をスケジュールに反映しますか？",
+            ["まだ反映しない", "反映する"],
+            horizontal=True
+        )
+
+        if apply_choice == "反映する":
+            if st.button("振替提案をスケジュールに反映する"):
+                try:
+                    updated_count = apply_replacements_to_sheet(worksheet, result)
+                    load_sheet_cached.clear()
+                    st.success(f"{updated_count}件の振替提案をスケジュールに反映しました。")
+                    st.rerun()
+                except Exception as e:
+                    st.error("振替提案の反映に失敗しました。少し時間を置いて再試行して。")
+                    st.exception(e)
+    else:
+        st.info("今週の振替提案はありません。")
 
 
 with tab_input:
@@ -602,10 +574,7 @@ with tab_input:
 
     for i, plan in enumerate(plans):
         with cols[i % 3]:
-            if st.button(
-                plan,
-                key=f"{selected_day}_{selected_time}_{target_col}_{plan}"
-            ):
+            if st.button(plan, key=f"{selected_day}_{selected_time}_{target_col}_{plan}"):
                 new_girl = row[girl_col]
                 new_boy = row[boy_col]
 
@@ -631,17 +600,39 @@ with tab_input:
                 st.success(f"{format_time_range(selected_time)} を {plan} に変更しました")
                 st.rerun()
 
+    with st.expander("複数の勉強予定を「勉強できなかった」に変更"):
+        study_rows = df[df["彼女"] == "勉強"].copy()
+
+        if study_rows.empty:
+            st.info("現在、変更できる勉強予定がありません。")
+        else:
+            options = [
+                f'{row["曜日"]} {format_time_range(row["時間"])} / 現在:{row["彼女"]}'
+                for _, row in study_rows.iterrows()
+            ]
+
+            selected_missed = st.multiselect(
+                "勉強できなかった日時を選択",
+                options
+            )
+
+            if st.button("選択した日時を勉強できなかったに変更"):
+                try:
+                    updated_count = apply_missed_to_sheet(worksheet, df, selected_missed)
+                    load_sheet_cached.clear()
+                    st.success(f"{updated_count}件を「勉強できなかった」に変更しました。")
+                    st.rerun()
+                except Exception as e:
+                    st.error("一括変更に失敗しました。少し時間を置いて再試行して。")
+                    st.exception(e)
+
     with st.expander("会いやすさ・勉強優先度を変更"):
         st.write("会いやすさ")
-
         ease_cols = st.columns(4)
 
         for i, ease in enumerate(ease_options):
             with ease_cols[i]:
-                if st.button(
-                    ease,
-                    key=f"{selected_day}_{selected_time}_ease_{ease}"
-                ):
+                if st.button(ease, key=f"{selected_day}_{selected_time}_ease_{ease}"):
                     update_one_row(
                         worksheet,
                         sheet_row_number,
@@ -660,15 +651,11 @@ with tab_input:
                     st.rerun()
 
         st.write("勉強優先度")
-
         pri_cols = st.columns(3)
 
         for i, priority in enumerate(priority_options):
             with pri_cols[i]:
-                if st.button(
-                    priority,
-                    key=f"{selected_day}_{selected_time}_priority_{priority}"
-                ):
+                if st.button(priority, key=f"{selected_day}_{selected_time}_priority_{priority}"):
                     update_one_row(
                         worksheet,
                         sheet_row_number,
@@ -707,17 +694,10 @@ with tab_week:
         aggfunc="first"
     )
 
-    calendar_df = calendar_df.reindex(
-        index=time_order_from_data,
-        columns=days
-    )
-
+    calendar_df = calendar_df.reindex(index=time_order_from_data, columns=days)
     calendar_df.index = [format_time_range(t) for t in calendar_df.index]
 
-    st.dataframe(
-        calendar_df.style.map(color_final),
-        use_container_width=True
-    )
+    st.dataframe(calendar_df.style.map(color_final), use_container_width=True)
 
     st.subheader("会ってもいい時間")
 
@@ -743,10 +723,7 @@ with tab_analysis:
         st.metric("現在の勉強予定", f"{stats['actual_study_total']}時間")
 
     with col3:
-        st.metric(
-            "週合計目標との差",
-            f"{stats['actual_study_total'] - stats['weekly_required']}時間"
-        )
+        st.metric("週合計目標との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
 
     col4, col5, col6 = st.columns(3)
 
@@ -822,11 +799,7 @@ with tab_analysis:
                 ],
             })
 
-            st.dataframe(
-                detail_df,
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(detail_df, use_container_width=True, hide_index=True)
 
     with st.expander("詳細データを見る"):
         detail_result = result.copy()
