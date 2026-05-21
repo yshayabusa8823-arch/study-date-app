@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import gspread
@@ -587,46 +588,68 @@ with tab_input:
                 st.success(f"{format_time_range(selected_time)} を {plan} に変更しました")
                 st.rerun()
 
-    with st.expander("時間割表から一括変更する", expanded=True):
+    with st.expander("時間割から一括変更する", expanded=True):
+
+        st.write("### 変更したい曜日を選ぶ")
+
+        bulk_day = st.radio(
+            "曜日",
+            days,
+            horizontal=True,
+            key="bulk_day_selector"
+        )
+
         new_status = st.radio(
             "選択した時間を何に変更する？",
             ["勉強", "勉強できなかった"],
-            horizontal=True
+            horizontal=True,
+            key="bulk_status_selector"
         )
 
         st.caption("変更したい時間をタップして選んでから、下の反映ボタンを押す。")
 
+        bulk_day_df = df[df["曜日"] == bulk_day].copy()
+
         selected_indexes = []
-        times = df["時間"].drop_duplicates().tolist()
 
-        header_cols = st.columns(8)
-        header_cols[0].markdown("**時間**")
-        for i, d in enumerate(days):
-            header_cols[i + 1].markdown(f"**{d}**")
+        for idx, row in bulk_day_df.iterrows():
 
-        for t in times:
-            row_cols = st.columns(8)
-            row_cols[0].markdown(f"**{format_time_range(t)}**")
+            current_status = row["彼女"]
+            time_label = format_time_range(row["時間"])
 
-            for i, d in enumerate(days):
-                cell = df[(df["曜日"] == d) & (df["時間"].astype(str) == str(t))]
+            if current_status == "勉強":
+                badge = "📚"
+            elif current_status == "勉強できなかった":
+                badge = "⚠️"
+            elif current_status == "空き":
+                badge = "○"
+            elif current_status == "授業":
+                badge = "🏫"
+            elif current_status == "バイト":
+                badge = "💼"
+            elif current_status == "ご飯":
+                badge = "🍚"
+            elif current_status == "用事":
+                badge = "📝"
+            elif current_status == "睡眠":
+                badge = "😴"
+            elif current_status == "移動":
+                badge = "🚃"
+            else:
+                badge = "・"
 
-                if cell.empty:
-                    row_cols[i + 1].write("-")
-                    continue
+            checked = st.checkbox(
+                f"{badge} {time_label}　現在：{current_status}",
+                key=f"bulk_select_{bulk_day}_{row['時間']}_{idx}"
+            )
 
-                idx = cell.index[0]
-                current = cell.iloc[0]["彼女"]
+            if checked:
+                selected_indexes.append(idx)
 
-                selected = row_cols[i + 1].checkbox(
-                    str(current),
-                    key=f"bulk_{d}_{t}_{idx}"
-                )
+        st.write(f"選択中：{len(selected_indexes)}件")
 
-                if selected:
-                    selected_indexes.append(idx)
+        if st.button(f"選択した時間を「{new_status}」に変更する", key="bulk_apply_button"):
 
-        if st.button(f"選択した時間を「{new_status}」に変更する"):
             try:
                 updated_count = apply_status_selected_to_sheet(
                     worksheet,
@@ -634,9 +657,15 @@ with tab_input:
                     selected_indexes,
                     new_status
                 )
+
                 load_sheet_cached.clear()
-                st.success(f"{updated_count}件を「{new_status}」に変更しました。")
+
+                st.success(
+                    f"{updated_count}件を「{new_status}」に変更しました。"
+              )
+
                 st.rerun()
+
             except Exception as e:
                 st.error("一括変更に失敗しました。少し時間を置いて再試行して。")
                 st.exception(e)
