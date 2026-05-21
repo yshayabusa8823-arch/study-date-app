@@ -109,6 +109,16 @@ def update_one_row(worksheet, row_number, row_values):
     worksheet.update(f"A{row_number}:F{row_number}", [row_values])
 
 
+def format_time_range(time_str):
+    try:
+        s = str(time_str).strip()
+        start_hour = int(s.split(":")[0])
+        end_hour = start_hour + 1
+        return f"{start_hour:02d}:00-{end_hour:02d}:00"
+    except Exception:
+        return str(time_str)
+
+
 def ease_label(ease):
     return {"×": "最優先", "△": "高", "○": "中", "◎": "低"}.get(ease, "")
 
@@ -254,11 +264,26 @@ def make_summary(result):
             "振替勉強時間": int((d["最終行動"] == "振替勉強").sum()),
             "会ってもいい時間": int((d["最終行動"] == "会ってもいい").sum()),
             "彼氏予定あり時間": int((d["最終行動"] == "彼氏予定あり").sum()),
-            "勉強時間帯": "、".join(d.loc[d["最終行動"] == "勉強", "時間"].astype(str).tolist()),
-            "振替勉強時間帯": "、".join(d.loc[d["最終行動"] == "振替勉強", "時間"].astype(str).tolist()),
-            "勉強できなかった時間帯": "、".join(d.loc[d["最終行動"] == "勉強できなかった", "時間"].astype(str).tolist()),
-            "会ってもいい時間帯": "、".join(d.loc[d["最終行動"] == "会ってもいい", "時間"].astype(str).tolist()),
-            "彼氏予定あり時間帯": "、".join(d.loc[d["最終行動"] == "彼氏予定あり", "時間"].astype(str).tolist()),
+            "勉強時間帯": "、".join(
+                format_time_range(t)
+                for t in d.loc[d["最終行動"] == "勉強", "時間"].astype(str).tolist()
+            ),
+            "振替勉強時間帯": "、".join(
+                format_time_range(t)
+                for t in d.loc[d["最終行動"] == "振替勉強", "時間"].astype(str).tolist()
+            ),
+            "勉強できなかった時間帯": "、".join(
+                format_time_range(t)
+                for t in d.loc[d["最終行動"] == "勉強できなかった", "時間"].astype(str).tolist()
+            ),
+            "会ってもいい時間帯": "、".join(
+                format_time_range(t)
+                for t in d.loc[d["最終行動"] == "会ってもいい", "時間"].astype(str).tolist()
+            ),
+            "彼氏予定あり時間帯": "、".join(
+                format_time_range(t)
+                for t in d.loc[d["最終行動"] == "彼氏予定あり", "時間"].astype(str).tolist()
+            ),
         })
 
     return pd.DataFrame(summary)
@@ -281,6 +306,13 @@ def extract_day_data(result, target_day):
     ][["時間"]]
 
     return study, maybe, missed
+
+
+def format_df_time_range(df, time_col="時間"):
+    copied = df.copy()
+    if time_col in copied.columns:
+        copied[time_col] = copied[time_col].apply(format_time_range)
+    return copied
 
 
 try:
@@ -333,7 +365,7 @@ with tab_home:
     label_prefix = "今日" if view_day_label == "今日" else "明日"
 
     if stats["shortage_after_missed"] > 0 and target_study_times:
-        suggested_times = target_study_times[:3]
+        suggested_times = [format_time_range(t) for t in target_study_times[:3]]
         suggested_hours = len(target_study_times)
 
         hero_title = f"📚 {label_prefix}は勉強優先"
@@ -354,7 +386,7 @@ with tab_home:
         hero_color = "#fff1f0"
 
     elif target_study_times:
-        suggested_times = target_study_times[:3]
+        suggested_times = [format_time_range(t) for t in target_study_times[:3]]
         suggested_hours = len(target_study_times)
 
         hero_title = f"📚 {label_prefix}の勉強ペースは順調"
@@ -397,7 +429,7 @@ with tab_home:
 
     with col1:
         st.metric(
-            "最低との差",
+            "週合計目標との差",
             f"{stats['actual_study_total'] - stats['weekly_required']}時間"
         )
 
@@ -419,7 +451,7 @@ with tab_home:
         for _, r in target_study.iterrows():
             tag_class = "warn" if r["最終行動"] == "振替勉強" else "study"
             st.markdown(
-                f'<span class="tag {tag_class}">{r["時間"]} {r["最終行動"]}</span>',
+                f'<span class="tag {tag_class}">{format_time_range(r["時間"])} {r["最終行動"]}</span>',
                 unsafe_allow_html=True
             )
     else:
@@ -433,7 +465,7 @@ with tab_home:
     if not target_maybe.empty:
         for _, r in target_maybe.iterrows():
             st.markdown(
-                f'<span class="tag meet">{r["時間"]}</span>',
+                f'<span class="tag meet">{format_time_range(r["時間"])}</span>',
                 unsafe_allow_html=True
             )
     else:
@@ -446,7 +478,7 @@ with tab_home:
         st.subheader(f"⚠️ {label_prefix}の勉強できなかった時間")
         for _, r in target_missed.iterrows():
             st.markdown(
-                f'<span class="tag bad">{r["時間"]}</span>',
+                f'<span class="tag bad">{format_time_range(r["時間"])}</span>',
                 unsafe_allow_html=True
             )
         st.markdown('</div>', unsafe_allow_html=True)
@@ -455,7 +487,7 @@ with tab_home:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("🔁 今週の振替提案")
         st.dataframe(
-            replacement_plan,
+            format_df_time_range(replacement_plan),
             use_container_width=True,
             hide_index=True
         )
@@ -470,7 +502,8 @@ with tab_input:
 
     selected_time = st.selectbox(
         "時間を選ぶ",
-        day_df["時間"].astype(str).tolist()
+        day_df["時間"].astype(str).tolist(),
+        format_func=format_time_range
     )
 
     row_mask = (
@@ -487,7 +520,7 @@ with tab_input:
     st.markdown(f"""
     <div class="card">
         <div class="muted">選択中</div>
-        <h2>{selected_day}曜日 {selected_time}</h2>
+        <h2>{selected_day}曜日 {format_time_range(selected_time)}</h2>
         <p>彼女：<b>{row[girl_col]}</b> / 彼氏：<b>{row[boy_col]}</b></p>
         <p>会いやすさ：<b>{row["会いやすさ"]}</b> / 勉強優先度：<b>{row["勉強優先度"]}</b></p>
     </div>
@@ -525,7 +558,7 @@ with tab_input:
                 )
 
                 load_sheet_cached.clear()
-                st.success(f"{selected_time} を {plan} に変更しました")
+                st.success(f"{format_time_range(selected_time)} を {plan} に変更しました")
                 st.rerun()
 
     with st.expander("会いやすさ・勉強優先度を変更"):
@@ -585,7 +618,7 @@ with tab_input:
 
     with st.expander("この曜日の予定を確認"):
         st.dataframe(
-            day_df,
+            format_df_time_range(day_df),
             use_container_width=True,
             hide_index=True
         )
@@ -609,6 +642,8 @@ with tab_week:
         columns=days
     )
 
+    calendar_df.index = [format_time_range(t) for t in calendar_df.index]
+
     st.dataframe(
         calendar_df.style.map(color_final),
         use_container_width=True
@@ -618,7 +653,7 @@ with tab_week:
 
     if not maybe_meet_plan.empty:
         st.dataframe(
-            maybe_meet_plan,
+            format_df_time_range(maybe_meet_plan),
             use_container_width=True,
             hide_index=True
         )
@@ -639,7 +674,7 @@ with tab_analysis:
 
     with col3:
         st.metric(
-            "最低との差",
+            "週合計目標との差",
             f"{stats['actual_study_total'] - stats['weekly_required']}時間"
         )
 
@@ -666,7 +701,7 @@ with tab_analysis:
     with tab_study:
         if not study_plan.empty:
             st.dataframe(
-                study_plan.rename(columns={"最終行動": "種類"}),
+                format_df_time_range(study_plan.rename(columns={"最終行動": "種類"})),
                 use_container_width=True,
                 hide_index=True
             )
@@ -676,7 +711,7 @@ with tab_analysis:
     with tab_maybe:
         if not maybe_meet_plan.empty:
             st.dataframe(
-                maybe_meet_plan,
+                format_df_time_range(maybe_meet_plan),
                 use_container_width=True,
                 hide_index=True
             )
@@ -724,7 +759,10 @@ with tab_analysis:
             )
 
     with st.expander("詳細データを見る"):
+        detail_result = result.copy()
+        detail_result["時間"] = detail_result["時間"].apply(format_time_range)
+
         st.dataframe(
-            result.style.map(color_final, subset=["最終行動"]),
+            detail_result.style.map(color_final, subset=["最終行動"]),
             use_container_width=True
         )
