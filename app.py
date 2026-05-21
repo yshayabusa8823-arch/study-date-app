@@ -26,7 +26,7 @@ h1, h2, h3 { letter-spacing: -0.03em; }
 .warn { background: #fce5cd; }
 .bad { background: #f4cccc; }
 div.stButton > button {
-    border-radius: 16px; min-height: 44px; font-size: 15px; width: 100%;
+    border-radius: 16px; min-height: 44px; font-size: 14px; width: 100%;
 }
 [data-testid="stMetric"] {
     background: #ffffff; padding: 14px; border-radius: 18px;
@@ -54,15 +54,9 @@ exam_dates = {
     "早稲田": date(2026, 8, 29),
     "慶應": date(2026, 9, 5),
 }
-countdowns = {
-    school: (exam_date - today_date).days
-    for school, exam_date in exam_dates.items()
-}
+countdowns = {school: (exam_date - today_date).days for school, exam_date in exam_dates.items()}
 
-plans = [
-    "空き", "勉強", "勉強できなかった", "授業", "バイト",
-    "ご飯", "用事", "睡眠", "移動", "その他"
-]
+plans = ["空き", "勉強", "勉強できなかった", "授業", "バイト", "ご飯", "用事", "睡眠", "移動", "その他"]
 ease_options = ["◎", "○", "△", "×"]
 priority_options = ["高", "中", "低"]
 
@@ -74,11 +68,7 @@ user_role = st.sidebar.radio("使っている人", ["彼女", "彼氏"])
 weekday_min = st.sidebar.number_input("平日最低勉強時間", min_value=0, value=5)
 weekend_min = st.sidebar.number_input("土日最低勉強時間", min_value=0, value=7)
 
-spreadsheet_url = st.sidebar.text_input(
-    "Google Sheets URL",
-    value="https://docs.google.com/spreadsheets/d/1-IXnv2wGZR6S4kXTTS0eB5EpuE7fepEQMtM72lZm-eQ/edit?gid=0#gid=0"
-)
-
+spreadsheet_url = st.sidebar.text_input("Google Sheets URL", value="https://docs.google.com/spreadsheets/d/1-IXnv2wGZR6S4kXTTS0eB5EpuE7fepEQMtM72lZm-eQ/edit?gid=0#gid=0")
 worksheet_name = st.sidebar.text_input("シート名", value="予定入力")
 
 auto_refresh = st.sidebar.checkbox("自動更新する", value=False)
@@ -120,6 +110,12 @@ def load_sheet_cached(url, sheet_name):
 
 def update_one_row(worksheet, row_number, row_values):
     worksheet.update(f"A{row_number}:F{row_number}", [row_values])
+
+
+def batch_update_rows(worksheet, updates):
+    if updates:
+        worksheet.batch_update(updates, value_input_option="USER_ENTERED")
+    return len(updates)
 
 
 def format_time_range(time_str):
@@ -183,7 +179,6 @@ def calculate_result(df):
     weekly_required = weekday_min * 5 + weekend_min * 2
     actual_study_total = (result["彼女"] == "勉強").sum()
     missed_total = (result["彼女"] == "勉強できなかった").sum()
-
     shortage_after_missed = max(0, weekly_required - actual_study_total)
 
     all_candidates = []
@@ -223,14 +218,12 @@ def calculate_result(df):
                 all_candidates.append((idx, score))
 
     all_candidates = sorted(all_candidates, key=lambda x: x[1])
-
     available_candidate_count = len(all_candidates)
     auto_place_count = min(shortage_after_missed, available_candidate_count)
     next_carryover = max(0, shortage_after_missed - available_candidate_count)
 
     for order, (idx, score) in enumerate(all_candidates, start=1):
         result.loc[idx, "勉強候補順"] = order
-
         if order <= auto_place_count:
             result.loc[idx, "自動配置"] = "振替勉強"
 
@@ -308,16 +301,16 @@ def extract_day_data(result, target_day):
     return study, maybe, missed
 
 
-def apply_replacements_to_sheet(worksheet, result_df):
-    replacement_rows = result_df[result_df["最終行動"] == "振替勉強"]
-
-    if replacement_rows.empty:
+def apply_replacements_selected_to_sheet(worksheet, result_df, selected_indexes):
+    if not selected_indexes:
         return 0
 
     updates = []
 
-    for idx, row in replacement_rows.iterrows():
+    for idx in selected_indexes:
+        row = result_df.loc[idx]
         sheet_row_number = idx + 2
+
         updates.append({
             "range": f"A{sheet_row_number}:F{sheet_row_number}",
             "values": [[
@@ -330,23 +323,16 @@ def apply_replacements_to_sheet(worksheet, result_df):
             ]]
         })
 
-    worksheet.batch_update(updates, value_input_option="USER_ENTERED")
-    return len(updates)
+    return batch_update_rows(worksheet, updates)
 
 
-def apply_missed_to_sheet(worksheet, df, selected_labels):
-    if not selected_labels:
+def apply_status_selected_to_sheet(worksheet, df, selected_indexes, new_status):
+    if not selected_indexes:
         return 0
-
-    label_to_index = {
-        f'{row["曜日"]} {format_time_range(row["時間"])} / 現在:{row["彼女"]}': idx
-        for idx, row in df.iterrows()
-    }
 
     updates = []
 
-    for label in selected_labels:
-        idx = label_to_index[label]
+    for idx in selected_indexes:
         row = df.loc[idx]
         sheet_row_number = idx + 2
 
@@ -355,15 +341,14 @@ def apply_missed_to_sheet(worksheet, df, selected_labels):
             "values": [[
                 row["曜日"],
                 row["時間"],
-                "勉強できなかった",
+                new_status,
                 row["彼氏"],
                 row["会いやすさ"],
                 row["勉強優先度"],
             ]]
         })
 
-    worksheet.batch_update(updates, value_input_option="USER_ENTERED")
-    return len(updates)
+    return batch_update_rows(worksheet, updates)
 
 
 try:
@@ -510,28 +495,30 @@ with tab_home:
     st.subheader("🔁 今週の振替提案")
 
     if not replacement_plan.empty:
-        st.dataframe(
-            format_df_time_range(replacement_plan),
-            use_container_width=True,
-            hide_index=True
-        )
+        selected_replacements = []
 
-        apply_choice = st.radio(
-            "この振替提案をスケジュールに反映しますか？",
-            ["まだ反映しない", "反映する"],
-            horizontal=True
-        )
+        for idx, row in result[result["最終行動"] == "振替勉強"].iterrows():
+            label = f'{row["曜日"]} {format_time_range(row["時間"])}'
+            use_it = st.checkbox(
+                f"{label} をスケジュールに反映する",
+                key=f"replace_{idx}"
+            )
+            if use_it:
+                selected_replacements.append(idx)
 
-        if apply_choice == "反映する":
-            if st.button("振替提案をスケジュールに反映する"):
-                try:
-                    updated_count = apply_replacements_to_sheet(worksheet, result)
-                    load_sheet_cached.clear()
-                    st.success(f"{updated_count}件の振替提案をスケジュールに反映しました。")
-                    st.rerun()
-                except Exception as e:
-                    st.error("振替提案の反映に失敗しました。少し時間を置いて再試行して。")
-                    st.exception(e)
+        if st.button("選択した振替提案だけ反映する"):
+            try:
+                updated_count = apply_replacements_selected_to_sheet(
+                    worksheet,
+                    result,
+                    selected_replacements
+                )
+                load_sheet_cached.clear()
+                st.success(f"{updated_count}件の振替提案を反映しました。")
+                st.rerun()
+            except Exception as e:
+                st.error("振替提案の反映に失敗しました。少し時間を置いて再試行して。")
+                st.exception(e)
     else:
         st.info("今週の振替提案はありません。")
 
@@ -600,31 +587,59 @@ with tab_input:
                 st.success(f"{format_time_range(selected_time)} を {plan} に変更しました")
                 st.rerun()
 
-    with st.expander("複数の勉強予定を「勉強できなかった」に変更"):
-        study_rows = df[df["彼女"] == "勉強"].copy()
+    with st.expander("時間割表から一括変更する", expanded=True):
+        new_status = st.radio(
+            "選択した時間を何に変更する？",
+            ["勉強", "勉強できなかった"],
+            horizontal=True
+        )
 
-        if study_rows.empty:
-            st.info("現在、変更できる勉強予定がありません。")
-        else:
-            options = [
-                f'{row["曜日"]} {format_time_range(row["時間"])} / 現在:{row["彼女"]}'
-                for _, row in study_rows.iterrows()
-            ]
+        st.caption("変更したい時間をタップして選んでから、下の反映ボタンを押す。")
 
-            selected_missed = st.multiselect(
-                "勉強できなかった日時を選択",
-                options
-            )
+        selected_indexes = []
+        times = df["時間"].drop_duplicates().tolist()
 
-            if st.button("選択した日時を勉強できなかったに変更"):
-                try:
-                    updated_count = apply_missed_to_sheet(worksheet, df, selected_missed)
-                    load_sheet_cached.clear()
-                    st.success(f"{updated_count}件を「勉強できなかった」に変更しました。")
-                    st.rerun()
-                except Exception as e:
-                    st.error("一括変更に失敗しました。少し時間を置いて再試行して。")
-                    st.exception(e)
+        header_cols = st.columns(8)
+        header_cols[0].markdown("**時間**")
+        for i, d in enumerate(days):
+            header_cols[i + 1].markdown(f"**{d}**")
+
+        for t in times:
+            row_cols = st.columns(8)
+            row_cols[0].markdown(f"**{format_time_range(t)}**")
+
+            for i, d in enumerate(days):
+                cell = df[(df["曜日"] == d) & (df["時間"].astype(str) == str(t))]
+
+                if cell.empty:
+                    row_cols[i + 1].write("-")
+                    continue
+
+                idx = cell.index[0]
+                current = cell.iloc[0]["彼女"]
+
+                selected = row_cols[i + 1].checkbox(
+                    str(current),
+                    key=f"bulk_{d}_{t}_{idx}"
+                )
+
+                if selected:
+                    selected_indexes.append(idx)
+
+        if st.button(f"選択した時間を「{new_status}」に変更する"):
+            try:
+                updated_count = apply_status_selected_to_sheet(
+                    worksheet,
+                    df,
+                    selected_indexes,
+                    new_status
+                )
+                load_sheet_cached.clear()
+                st.success(f"{updated_count}件を「{new_status}」に変更しました。")
+                st.rerun()
+            except Exception as e:
+                st.error("一括変更に失敗しました。少し時間を置いて再試行して。")
+                st.exception(e)
 
     with st.expander("会いやすさ・勉強優先度を変更"):
         st.write("会いやすさ")
@@ -674,11 +689,7 @@ with tab_input:
                     st.rerun()
 
     with st.expander("この曜日の予定を確認"):
-        st.dataframe(
-            format_df_time_range(day_df),
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(format_df_time_range(day_df), use_container_width=True, hide_index=True)
 
 
 with tab_week:
@@ -702,11 +713,7 @@ with tab_week:
     st.subheader("会ってもいい時間")
 
     if not maybe_meet_plan.empty:
-        st.dataframe(
-            format_df_time_range(maybe_meet_plan),
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(format_df_time_range(maybe_meet_plan), use_container_width=True, hide_index=True)
     else:
         st.info("会ってもいい時間はありません。")
 
@@ -757,11 +764,7 @@ with tab_analysis:
 
     with tab_maybe:
         if not maybe_meet_plan.empty:
-            st.dataframe(
-                format_df_time_range(maybe_meet_plan),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(format_df_time_range(maybe_meet_plan), use_container_width=True, hide_index=True)
         else:
             st.info("会ってもいい時間はありません。")
 
@@ -783,13 +786,7 @@ with tab_analysis:
                 st.metric("会ってもいい", f"{d['会ってもいい時間']}時間")
 
             detail_df = pd.DataFrame({
-                "項目": [
-                    "勉強時間帯",
-                    "勉強できなかった",
-                    "振替勉強",
-                    "会ってもいい",
-                    "彼氏予定あり",
-                ],
+                "項目": ["勉強時間帯", "勉強できなかった", "振替勉強", "会ってもいい", "彼氏予定あり"],
                 "内容": [
                     d["勉強時間帯"],
                     d["勉強できなかった時間帯"],
