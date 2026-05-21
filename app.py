@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 st.set_page_config(page_title="Study Date", page_icon="📚", layout="centered")
@@ -48,6 +48,23 @@ weekday_map = {0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "�
 today_day = weekday_map[datetime.now(ZoneInfo("Asia/Tokyo")).weekday()]
 tomorrow_day = days[(days.index(today_day) + 1) % 7]
 remaining_days = days[days.index(today_day):]
+
+# =====================
+# ロースクール試験日
+# =====================
+
+today_date = date.today()
+
+exam_dates = {
+    "中央": date(2026, 8, 22),
+    "早稲田": date(2026, 8, 29),
+    "慶應": date(2026, 9, 5),
+}
+
+countdowns = {
+    school: (exam_date - today_date).days
+    for school, exam_date in exam_dates.items()
+}
 
 plans = ["空き", "勉強", "勉強できなかった", "授業", "バイト", "ご飯", "用事", "睡眠", "移動", "その他"]
 ease_options = ["◎", "○", "△", "×"]
@@ -424,6 +441,24 @@ with tab_home:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+
+    st.subheader("📅 ロースクール試験まで")
+
+    cols = st.columns(3)
+    schools = ["中央", "早稲田", "慶應"]
+
+    for i, school in enumerate(schools):
+        with cols[i]:
+            days_left = countdowns[school]
+
+            if days_left <= 100:
+                st.error(f"{school}\nあと{days_left}日")
+            else:
+                st.metric(school, f"あと{days_left}日")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
 
