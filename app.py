@@ -442,24 +442,59 @@ with tab_home:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-
     st.subheader("📅 ロースクール試験まで")
 
-    cols = st.columns(3)
-    schools = ["中央", "早稲田", "慶應"]
+cols = st.columns(3)
+schools = ["中央", "早稲田", "慶應"]
 
-    for i, school in enumerate(schools):
-        with cols[i]:
-            days_left = countdowns[school]
+for i, school in enumerate(schools):
+    days_left = countdowns[school]
 
-            if days_left <= 100:
-                st.error(f"{school}\nあと{days_left}日")
-            else:
-                st.metric(school, f"あと{days_left}日")
+    with cols[i]:
+        if days_left <= 100:
+            card_html = f"""
+            <div style="
+                padding:20px;
+                border-radius:24px;
+                background: linear-gradient(135deg,#ffeded,#ffe3e3);
+                border:1px solid #ff9e9e;
+                box-shadow:0 6px 18px rgba(255,0,0,0.10);
+                min-height:170px;
+            ">
+                <div style="font-size:15px; color:#d32f2f; font-weight:700; margin-bottom:10px;">
+                    🔥 {school}ロー
+                </div>
+                <div style="font-size:42px; font-weight:800; color:#b71c1c; line-height:1.1;">
+                    あと{days_left}日
+                </div>
+                <div style="margin-top:14px; font-size:14px; color:#c62828; font-weight:600;">
+                    100日切り
+                </div>
+            </div>
+            """
+        else:
+            card_html = f"""
+            <div style="
+                padding:20px;
+                border-radius:24px;
+                background:#ffffff;
+                border:1px solid #eeeeee;
+                box-shadow:0 4px 14px rgba(0,0,0,0.05);
+                min-height:170px;
+            ">
+                <div style="font-size:15px; color:#555; font-weight:700; margin-bottom:10px;">
+                    🎓 {school}ロー
+                </div>
+                <div style="font-size:42px; font-weight:800; color:#222; line-height:1.1;">
+                    あと{days_left}日
+                </div>
+                <div style="margin-top:14px; font-size:14px; color:#888;">
+                    試験までカウントダウン中
+                </div>
+            </div>
+            """
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
+        st.markdown(card_html, unsafe_allow_html=True)
     col1, col2 = st.columns(2)
 
     with col1:
