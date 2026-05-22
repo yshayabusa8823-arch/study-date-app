@@ -90,7 +90,7 @@ spreadsheet_url = st.sidebar.text_input(
     value="https://docs.google.com/spreadsheets/d/1-IXnv2wGZR6S4kXTTS0eB5EpuE7fepEQMtM72lZm-eQ/edit?gid=0#gid=0"
 )
 
-auto_refresh = st.sidebar.checkbox("自動更新する", value=False)
+auto_refresh = st.sidebar.checkbox("自動更新する", value=True)
 
 if auto_refresh:
     st_autorefresh(interval=60000, key="auto_refresh")
