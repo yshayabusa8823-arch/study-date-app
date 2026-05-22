@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import gspread
@@ -7,7 +6,41 @@ from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
+# =====================
+# 基本設定
+# =====================
+
 st.set_page_config(page_title="Study Date", page_icon="📚", layout="centered")
+
+CURRENT_SHEET = "current"
+MASTER_SHEET = "master"
+CARRYOVER_SHEET = "carryover"
+
+days = ["月", "火", "水", "木", "金", "土", "日"]
+weekday_map = {0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"}
+
+now_jst = datetime.now(ZoneInfo("Asia/Tokyo"))
+today_day = weekday_map[now_jst.weekday()]
+tomorrow_day = days[(days.index(today_day) + 1) % 7]
+remaining_days = days[days.index(today_day):]
+
+plans = ["空き", "勉強", "勉強できなかった", "授業", "バイト", "ご飯", "用事", "睡眠", "移動", "その他"]
+ease_options = ["◎", "○", "△", "×"]
+priority_options = ["高", "中", "低"]
+
+girl_col = "彼女"
+boy_col = "彼氏"
+
+exam_dates = {
+    "中央": date(2026, 8, 22),
+    "早稲田": date(2026, 8, 29),
+    "慶應": date(2026, 9, 5),
+}
+countdowns = {k: (v - date.today()).days for k, v in exam_dates.items()}
+
+# =====================
+# CSS
+# =====================
 
 st.markdown("""
 <style>
@@ -42,35 +75,20 @@ div.stButton > button {
 
 st.title("📚 Study Date")
 
-days = ["月", "火", "水", "木", "金", "土", "日"]
-weekday_map = {0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"}
-
-today_day = weekday_map[datetime.now(ZoneInfo("Asia/Tokyo")).weekday()]
-tomorrow_day = days[(days.index(today_day) + 1) % 7]
-remaining_days = days[days.index(today_day):]
-
-today_date = date.today()
-exam_dates = {
-    "中央": date(2026, 8, 22),
-    "早稲田": date(2026, 8, 29),
-    "慶應": date(2026, 9, 5),
-}
-countdowns = {school: (exam_date - today_date).days for school, exam_date in exam_dates.items()}
-
-plans = ["空き", "勉強", "勉強できなかった", "授業", "バイト", "ご飯", "用事", "睡眠", "移動", "その他"]
-ease_options = ["◎", "○", "△", "×"]
-priority_options = ["高", "中", "低"]
-
-girl_col = "彼女"
-boy_col = "彼氏"
+# =====================
+# サイドバー
+# =====================
 
 st.sidebar.header("設定")
+
 user_role = st.sidebar.radio("使っている人", ["彼女", "彼氏"])
 weekday_min = st.sidebar.number_input("平日最低勉強時間", min_value=0, value=5)
 weekend_min = st.sidebar.number_input("土日最低勉強時間", min_value=0, value=7)
 
-spreadsheet_url = st.sidebar.text_input("Google Sheets URL", value="https://docs.google.com/spreadsheets/d/1-IXnv2wGZR6S4kXTTS0eB5EpuE7fepEQMtM72lZm-eQ/edit?gid=0#gid=0")
-worksheet_name = st.sidebar.text_input("シート名", value="予定入力")
+spreadsheet_url = st.sidebar.text_input(
+    "Google Sheets URL",
+    value="https://docs.google.com/spreadsheets/d/1-IXnv2wGZR6S4kXTTS0eB5EpuE7fepEQMtM72lZm-eQ/edit?gid=0#gid=0"
+)
 
 auto_refresh = st.sidebar.checkbox("自動更新する", value=False)
 
@@ -81,6 +99,9 @@ if st.sidebar.button("手動更新"):
     st.cache_data.clear()
     st.rerun()
 
+# =====================
+# Google Sheets
+# =====================
 
 @st.cache_resource
 def connect_gsheet():
@@ -96,27 +117,38 @@ def connect_gsheet():
 
 
 @st.cache_resource
-def get_worksheet_cached(url, sheet_name):
+def open_spreadsheet(url):
     client = connect_gsheet()
-    sheet = client.open_by_url(url)
-    return sheet.worksheet(sheet_name)
+    return client.open_by_url(url)
+
+
+def get_ws(sheet, name):
+    return sheet.worksheet(name)
 
 
 @st.cache_data(ttl=60)
-def load_sheet_cached(url, sheet_name):
-    worksheet = get_worksheet_cached(url, sheet_name)
-    data = worksheet.get_all_records()
+def load_current_sheet(url):
+    sheet = open_spreadsheet(url)
+    ws = sheet.worksheet(CURRENT_SHEET)
+    data = ws.get_all_records()
     return pd.DataFrame(data)
 
 
-def update_one_row(worksheet, row_number, row_values):
-    worksheet.update(f"A{row_number}:F{row_number}", [row_values])
+def read_carryover(sheet):
+    try:
+        ws = get_ws(sheet, CARRYOVER_SHEET)
+        records = ws.get_all_records()
+        for r in records:
+            if str(r.get("key")) == "next_carryover":
+                return int(r.get("value", 0))
+    except Exception:
+        pass
+    return 0
 
 
-def batch_update_rows(worksheet, updates):
-    if updates:
-        worksheet.batch_update(updates, value_input_option="USER_ENTERED")
-    return len(updates)
+def write_carryover(sheet, value):
+    ws = get_ws(sheet, CARRYOVER_SHEET)
+    ws.update("A1:B2", [["key", "value"], ["next_carryover", int(value)]])
 
 
 def format_time_range(time_str):
@@ -135,6 +167,99 @@ def format_df_time_range(df, time_col="時間"):
         copied[time_col] = copied[time_col].apply(format_time_range)
     return copied
 
+
+def batch_update_rows(worksheet, updates):
+    if updates:
+        worksheet.batch_update(updates, value_input_option="USER_ENTERED")
+    return len(updates)
+
+
+def reset_current_from_master(sheet):
+    master_ws = get_ws(sheet, MASTER_SHEET)
+    current_ws = get_ws(sheet, CURRENT_SHEET)
+
+    master_data = master_ws.get_all_values()
+    current_ws.clear()
+
+    if master_data:
+        current_ws.update(f"A1:F{len(master_data)}", master_data)
+
+
+def apply_carryover_to_current(sheet, carryover_hours):
+    if carryover_hours <= 0:
+        return 0
+
+    current_ws = get_ws(sheet, CURRENT_SHEET)
+    df = pd.DataFrame(current_ws.get_all_records())
+
+    if df.empty:
+        return 0
+
+    candidates = []
+
+    for idx, row in df.iterrows():
+        if row.get("彼女") == "空き":
+            priority = row.get("勉強優先度", "低")
+            ease = row.get("会いやすさ", "○")
+            score = priority_score(priority) * 10 + ease_score(ease)
+            candidates.append((idx, score))
+
+    candidates = sorted(candidates, key=lambda x: x[1])
+    selected = candidates[:carryover_hours]
+
+    updates = []
+
+    for idx, _ in selected:
+        row = df.loc[idx]
+        sheet_row_number = idx + 2
+        updates.append({
+            "range": f"A{sheet_row_number}:F{sheet_row_number}",
+            "values": [[
+                row["曜日"],
+                row["時間"],
+                "勉強",
+                row["彼氏"],
+                row["会いやすさ"],
+                row["勉強優先度"],
+            ]]
+        })
+
+    return batch_update_rows(current_ws, updates)
+
+
+def weekly_reset_if_needed(sheet):
+    now = datetime.now(ZoneInfo("Asia/Tokyo"))
+    today_str = now.strftime("%Y-%m-%d")
+
+    # 月曜0時以降、まだ今週リセットしていなければ実行
+    # Streamlitは常時起動ではないため、誰かが開いたタイミングで実行される
+    if now.weekday() != 0:
+        return
+
+    last_reset = st.session_state.get("last_reset_date")
+
+    if last_reset == today_str:
+        return
+
+    carryover_hours = read_carryover(sheet)
+
+    reset_current_from_master(sheet)
+
+    applied = apply_carryover_to_current(sheet, carryover_hours)
+
+    write_carryover(sheet, max(0, carryover_hours - applied))
+
+    st.session_state["last_reset_date"] = today_str
+    st.cache_data.clear()
+
+
+def update_one_row(worksheet, row_number, row_values):
+    worksheet.update(f"A{row_number}:F{row_number}", [row_values])
+
+
+# =====================
+# ロジック
+# =====================
 
 def ease_label(ease):
     return {"×": "最優先", "△": "高", "○": "中", "◎": "低"}.get(ease, "")
@@ -166,7 +291,7 @@ def color_final(val):
     return colors.get(val, "")
 
 
-def calculate_result(df):
+def calculate_result(df, previous_carryover):
     result = df.copy()
 
     result["判定"] = ""
@@ -180,7 +305,11 @@ def calculate_result(df):
     weekly_required = weekday_min * 5 + weekend_min * 2
     actual_study_total = (result["彼女"] == "勉強").sum()
     missed_total = (result["彼女"] == "勉強できなかった").sum()
-    shortage_after_missed = max(0, weekly_required - actual_study_total)
+
+    shortage_after_missed = max(
+        0,
+        weekly_required + previous_carryover - actual_study_total
+    )
 
     all_candidates = []
 
@@ -219,6 +348,7 @@ def calculate_result(df):
                 all_candidates.append((idx, score))
 
     all_candidates = sorted(all_candidates, key=lambda x: x[1])
+
     available_candidate_count = len(all_candidates)
     auto_place_count = min(shortage_after_missed, available_candidate_count)
     next_carryover = max(0, shortage_after_missed - available_candidate_count)
@@ -253,6 +383,7 @@ def calculate_result(df):
 
     stats = {
         "weekly_required": int(weekly_required),
+        "previous_carryover": int(previous_carryover),
         "actual_study_total": int(actual_study_total),
         "missed_total": int(missed_total),
         "shortage_after_missed": int(shortage_after_missed),
@@ -303,9 +434,6 @@ def extract_day_data(result, target_day):
 
 
 def apply_replacements_selected_to_sheet(worksheet, result_df, selected_indexes):
-    if not selected_indexes:
-        return 0
-
     updates = []
 
     for idx in selected_indexes:
@@ -328,9 +456,6 @@ def apply_replacements_selected_to_sheet(worksheet, result_df, selected_indexes)
 
 
 def apply_status_selected_to_sheet(worksheet, df, selected_indexes, new_status):
-    if not selected_indexes:
-        return 0
-
     updates = []
 
     for idx in selected_indexes:
@@ -352,15 +477,23 @@ def apply_status_selected_to_sheet(worksheet, df, selected_indexes, new_status):
     return batch_update_rows(worksheet, updates)
 
 
+# =====================
+# データ読み込み
+# =====================
+
 try:
-    df = load_sheet_cached(spreadsheet_url, worksheet_name)
-    worksheet = get_worksheet_cached(spreadsheet_url, worksheet_name)
+    sheet = open_spreadsheet(spreadsheet_url)
+    weekly_reset_if_needed(sheet)
+
+    current_ws = get_ws(sheet, CURRENT_SHEET)
+    previous_carryover = read_carryover(sheet)
+
+    df = load_current_sheet(spreadsheet_url)
 
 except Exception as e:
     st.error("Google Sheetsの読み込みに失敗しました。API上限の可能性もあります。少し時間を置いてから、左の「手動更新」を押してください。")
     st.exception(e)
     st.stop()
-
 
 required_cols = ["曜日", "時間", "彼女", "彼氏", "会いやすさ", "勉強優先度"]
 missing_cols = [c for c in required_cols if c not in df.columns]
@@ -372,7 +505,7 @@ if missing_cols:
 df = df[required_cols].copy()
 df = df[df["曜日"].isin(days)].copy()
 
-result, stats = calculate_result(df)
+result, stats = calculate_result(df, previous_carryover)
 summary_df = make_summary(result)
 
 replacement_plan = result[result["最終行動"] == "振替勉強"][["曜日", "時間"]]
@@ -383,10 +516,17 @@ study_plan = result[
     | (result["最終行動"] == "振替勉強")
 ][["曜日", "時間", "最終行動"]]
 
+# =====================
+# タブ
+# =====================
+
 tab_home, tab_input, tab_week, tab_analysis = st.tabs(
     ["🏠 今日", "✏️ 入力", "📅 週間", "📊 分析"]
 )
 
+# =====================
+# ホーム
+# =====================
 
 with tab_home:
     view_day_label = st.radio("表示する日", ["今日", "明日"], horizontal=True)
@@ -429,8 +569,8 @@ with tab_home:
     st.subheader("📅 ロースクール試験まで")
     cols = st.columns(3)
 
-    for i, school in enumerate(["中央", "早稲田", "慶應"]):
-        days_left = countdowns[school]
+    for i, school_name in enumerate(["中央", "早稲田", "慶應"]):
+        days_left = countdowns[school_name]
 
         with cols[i]:
             if days_left <= 100:
@@ -450,12 +590,13 @@ with tab_home:
 
             st.markdown(f"""
             <div style="padding:18px;border-radius:24px;background:{card_color};border:1px solid {border};box-shadow:0 4px 14px rgba(0,0,0,0.05);min-height:150px;">
-                <div style="font-size:15px;color:{title_color};font-weight:700;margin-bottom:10px;">{icon} {school}ロー</div>
+                <div style="font-size:15px;color:{title_color};font-weight:700;margin-bottom:10px;">{icon} {school_name}ロー</div>
                 <div style="font-size:34px;font-weight:800;color:{num_color};line-height:1.1;">あと{days_left}日</div>
                 <div style="margin-top:14px;font-size:14px;color:{title_color};font-weight:600;">{note}</div>
             </div>
             """, unsafe_allow_html=True)
 
+    st.metric("前週繰り越し", f"{stats['previous_carryover']}時間")
     st.metric("週合計目標との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
     st.metric("来週繰り越し", f"{stats['next_carryover']}時間")
 
@@ -510,11 +651,12 @@ with tab_home:
         if st.button("選択した振替提案だけ反映する"):
             try:
                 updated_count = apply_replacements_selected_to_sheet(
-                    worksheet,
+                    current_ws,
                     result,
                     selected_replacements
                 )
-                load_sheet_cached.clear()
+                write_carryover(sheet, stats["next_carryover"])
+                st.cache_data.clear()
                 st.success(f"{updated_count}件の振替提案を反映しました。")
                 st.rerun()
             except Exception as e:
@@ -523,6 +665,9 @@ with tab_home:
     else:
         st.info("今週の振替提案はありません。")
 
+# =====================
+# 入力
+# =====================
 
 with tab_input:
     st.subheader("予定を変更する")
@@ -572,7 +717,7 @@ with tab_input:
                     new_boy = plan
 
                 update_one_row(
-                    worksheet,
+                    current_ws,
                     sheet_row_number,
                     [
                         row["曜日"],
@@ -584,12 +729,11 @@ with tab_input:
                     ],
                 )
 
-                load_sheet_cached.clear()
+                st.cache_data.clear()
                 st.success(f"{format_time_range(selected_time)} を {plan} に変更しました")
                 st.rerun()
 
     with st.expander("時間割から一括変更する", expanded=True):
-
         st.write("### 変更したい曜日を選ぶ")
 
         bulk_day = st.radio(
@@ -609,34 +753,23 @@ with tab_input:
         st.caption("変更したい時間をタップして選んでから、下の反映ボタンを押す。")
 
         bulk_day_df = df[df["曜日"] == bulk_day].copy()
-
         selected_indexes = []
 
         for idx, row in bulk_day_df.iterrows():
-
             current_status = row["彼女"]
             time_label = format_time_range(row["時間"])
 
-            if current_status == "勉強":
-                badge = "📚"
-            elif current_status == "勉強できなかった":
-                badge = "⚠️"
-            elif current_status == "空き":
-                badge = "○"
-            elif current_status == "授業":
-                badge = "🏫"
-            elif current_status == "バイト":
-                badge = "💼"
-            elif current_status == "ご飯":
-                badge = "🍚"
-            elif current_status == "用事":
-                badge = "📝"
-            elif current_status == "睡眠":
-                badge = "😴"
-            elif current_status == "移動":
-                badge = "🚃"
-            else:
-                badge = "・"
+            badge = {
+                "勉強": "📚",
+                "勉強できなかった": "⚠️",
+                "空き": "○",
+                "授業": "🏫",
+                "バイト": "💼",
+                "ご飯": "🍚",
+                "用事": "📝",
+                "睡眠": "😴",
+                "移動": "🚃",
+            }.get(current_status, "・")
 
             checked = st.checkbox(
                 f"{badge} {time_label}　現在：{current_status}",
@@ -648,24 +781,17 @@ with tab_input:
 
         st.write(f"選択中：{len(selected_indexes)}件")
 
-        if st.button(f"選択した時間を「{new_status}」に変更する", key="bulk_apply_button"):
-
+        if st.button(f"選択した時間を「{new_status}」に変更する"):
             try:
                 updated_count = apply_status_selected_to_sheet(
-                    worksheet,
+                    current_ws,
                     df,
                     selected_indexes,
                     new_status
                 )
-
-                load_sheet_cached.clear()
-
-                st.success(
-                    f"{updated_count}件を「{new_status}」に変更しました。"
-              )
-
+                st.cache_data.clear()
+                st.success(f"{updated_count}件を「{new_status}」に変更しました。")
                 st.rerun()
-
             except Exception as e:
                 st.error("一括変更に失敗しました。少し時間を置いて再試行して。")
                 st.exception(e)
@@ -678,7 +804,7 @@ with tab_input:
             with ease_cols[i]:
                 if st.button(ease, key=f"{selected_day}_{selected_time}_ease_{ease}"):
                     update_one_row(
-                        worksheet,
+                        current_ws,
                         sheet_row_number,
                         [
                             row["曜日"],
@@ -690,7 +816,7 @@ with tab_input:
                         ],
                     )
 
-                    load_sheet_cached.clear()
+                    st.cache_data.clear()
                     st.success(f"会いやすさを {ease} に変更しました")
                     st.rerun()
 
@@ -701,7 +827,7 @@ with tab_input:
             with pri_cols[i]:
                 if st.button(priority, key=f"{selected_day}_{selected_time}_priority_{priority}"):
                     update_one_row(
-                        worksheet,
+                        current_ws,
                         sheet_row_number,
                         [
                             row["曜日"],
@@ -713,13 +839,16 @@ with tab_input:
                         ],
                     )
 
-                    load_sheet_cached.clear()
+                    st.cache_data.clear()
                     st.success(f"勉強優先度を {priority} に変更しました")
                     st.rerun()
 
     with st.expander("この曜日の予定を確認"):
         st.dataframe(format_df_time_range(day_df), use_container_width=True, hide_index=True)
 
+# =====================
+# 週間
+# =====================
 
 with tab_week:
     st.subheader("📅 週間タイムテーブル")
@@ -746,6 +875,9 @@ with tab_week:
     else:
         st.info("会ってもいい時間はありません。")
 
+# =====================
+# 分析
+# =====================
 
 with tab_analysis:
     st.subheader("📊 今週の勉強調整")
@@ -756,15 +888,15 @@ with tab_analysis:
         st.metric("週最低勉強時間", f"{stats['weekly_required']}時間")
 
     with col2:
-        st.metric("現在の勉強予定", f"{stats['actual_study_total']}時間")
+        st.metric("前週繰り越し", f"{stats['previous_carryover']}時間")
 
     with col3:
-        st.metric("週合計目標との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
+        st.metric("現在の勉強予定", f"{stats['actual_study_total']}時間")
 
     col4, col5, col6 = st.columns(3)
 
     with col4:
-        st.metric("勉強できなかった", f"{stats['missed_total']}時間")
+        st.metric("週合計目標との差", f"{stats['actual_study_total'] - stats['weekly_required']}時間")
 
     with col5:
         st.metric("今週に入れる振替", f"{stats['auto_place_count']}時間")
@@ -776,6 +908,10 @@ with tab_analysis:
         st.warning(f"最低勉強時間を {stats['shortage_after_missed']}時間 下回っています。")
     else:
         st.success("最低勉強時間は満たせています。")
+
+    if st.button("現在の来週繰り越し時間をcarryoverに保存する"):
+        write_carryover(sheet, stats["next_carryover"])
+        st.success(f"来週繰り越し時間 {stats['next_carryover']}時間 を保存しました。")
 
     st.subheader("おすすめ提案")
 
